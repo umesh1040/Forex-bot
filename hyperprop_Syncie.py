@@ -7,7 +7,7 @@ USER_TOKEN = "MTQyODgxNjc4NjExMDgwODA4OA.G9HpLn.628LK5VAhWFrl5-pm-3wyZbamyvvMjye
 RULES = [
     {
         "name": "Bot 1499804063712411738 Monitor",
-        "bot_id": 1499804063712411738,
+        "bot_id": 1491414052583379154,
         "channel_ids": [1493168400837382196, 1541483457694400563],
         "webhook_url": "https://discord.com/api/webhooks/1547448491213594755/Vrfgd8X0WzoiRWno3Z26P84In7r2jhY0DqPsJBv1oCqDrvBxt_-MjfcTd17wZn_yGI10",
     },
