@@ -11,7 +11,7 @@ USER_TOKEN = os.getenv("USER_TOKEN", "MTQyODgxNjc4NjExMDgwODA4OA.G9HpLn.628LK5VA
 RULES = [
     {
         "name": "Bot 274561010600509450 Monitor",
-        "bot_id": 274561010600509450,
+        "bot_id": 1264984212914573312,
         "channel_ids": [1493168400837382196, 1541483457694400563],
         "webhook_url": "https://discord.com/api/webhooks/1547448491213594755/Vrfgd8X0WzoiRWno3Z26P84In7r2jhY0DqPsJBv1oCqDrvBxt_-MjfcTd17wZn_yGI10",
     },
