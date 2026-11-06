@@ -20,9 +20,31 @@ NTFY_TOPIC = os.getenv("NTFY_TOPIC", "drop_alerts_02")
 ENABLE_NTFY = os.getenv("ENABLE_NTFY", "True").lower() in ("true", "1", "yes")
 AUTO_OPEN_BROWSER = os.getenv("AUTO_OPEN_BROWSER", "True").lower() in ("true", "1", "yes")
 
+# Optional proxy for YouTube (essential on cloud platforms like Render/AWS to bypass 429)
+YOUTUBE_PROXY = os.getenv("YOUTUBE_PROXY", "").strip() or None
+YOUTUBE_POLL_INTERVAL = int(os.getenv("YOUTUBE_POLL_INTERVAL", "25"))
+
 DEFAULT_HEADERS = {
     'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
     'Accept-Language': 'en-US,en;q=0.9',
+}
+
+YOUTUBE_HEADERS = {
+    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+    'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
+    'Accept-Language': 'en-US,en;q=0.9',
+    'Sec-Ch-Ua': '"Chromium";v="124", "Google Chrome";v="124", "Not-A.Brand";v="99"',
+    'Sec-Ch-Ua-Mobile': '?0',
+    'Sec-Ch-Ua-Platform': '"Windows"',
+    'Sec-Fetch-Dest': 'document',
+    'Sec-Fetch-Mode': 'navigate',
+    'Sec-Fetch-Site': 'none',
+    'Sec-Fetch-User': '?1',
+}
+
+YOUTUBE_COOKIES = {
+    'CONSENT': 'YES+cb.20210328-17-p0.en+FX+478',
+    'SOCS': 'CAESEwgDEgk2Nzc0ODUxNDMaAmVuIAEaBgiA_LyaBg',
 }
 
 # Channels to monitor for text-sending permission (alert if closed/opened)
@@ -643,16 +665,76 @@ class YouTubeLiveChatClient:
         self.is_replay = False
 
     def fetch_url(self, url, post_data=None):
-        req = urllib.request.Request(
-            url,
-            data=json.dumps(post_data).encode('utf-8') if post_data is not None else None,
-            headers={
-                **DEFAULT_HEADERS,
-                'Content-Type': 'application/json' if post_data is not None else 'text/html'
-            }
-        )
-        with urllib.request.urlopen(req) as resp:
-            return resp.read().decode('utf-8', errors='ignore')
+        proxies = None
+        if YOUTUBE_PROXY:
+            proxies = {"http": YOUTUBE_PROXY, "https": YOUTUBE_PROXY}
+
+        headers = {**YOUTUBE_HEADERS}
+        if post_data is not None:
+            headers['Content-Type'] = 'application/json'
+
+        # 1. Attempt with curl_cffi for realistic browser TLS fingerprinting
+        try:
+            from curl_cffi import requests as c_req
+            if post_data is not None:
+                resp = c_req.post(
+                    url,
+                    json=post_data,
+                    headers=headers,
+                    cookies=YOUTUBE_COOKIES,
+                    proxies=proxies,
+                    timeout=15,
+                    impersonate="chrome124"
+                )
+            else:
+                resp = c_req.get(
+                    url,
+                    headers=headers,
+                    cookies=YOUTUBE_COOKIES,
+                    proxies=proxies,
+                    timeout=15,
+                    impersonate="chrome124"
+                )
+            if resp.status_code == 429:
+                raise urllib.error.HTTPError(url, 429, "Too Many Requests", resp.headers, None)
+            resp.raise_for_status()
+            return resp.text
+        except ImportError:
+            pass
+        except urllib.error.HTTPError:
+            raise
+        except Exception:
+            pass
+
+        # 2. Standard requests fallback with cookies & proxy
+        try:
+            if post_data is not None:
+                resp = requests.post(
+                    url,
+                    json=post_data,
+                    headers=headers,
+                    cookies=YOUTUBE_COOKIES,
+                    proxies=proxies,
+                    timeout=15
+                )
+            else:
+                resp = requests.get(
+                    url,
+                    headers=headers,
+                    cookies=YOUTUBE_COOKIES,
+                    proxies=proxies,
+                    timeout=15
+                )
+            if resp.status_code == 429:
+                raise urllib.error.HTTPError(url, 429, "Too Many Requests", resp.headers, None)
+            resp.raise_for_status()
+            return resp.text
+        except urllib.error.HTTPError:
+            raise
+        except Exception as e:
+            if "429" in str(e):
+                raise urllib.error.HTTPError(url, 429, "Too Many Requests", {}, None)
+            raise
 
     def check_channel_streams(self, channel_url=None):
         raw_url = channel_url or self.target_url
@@ -736,55 +818,59 @@ class YouTubeLiveChatClient:
         }
 
     def init_video_chat(self, video_id):
-        self.video_id = video_id
-        watch_url = f"https://www.youtube.com/watch?v={video_id}"
-        html = self.fetch_url(watch_url)
-
-        api_key_match = re.search(r'"INNERTUBE_API_KEY":"([^"]+)"', html)
-        if api_key_match:
-            self.api_key = api_key_match.group(1)
-            
-        cv_match = re.search(r'"INNERTUBE_CLIENT_VERSION":"([^"]+)"', html)
-        if cv_match:
-            self.client_version = cv_match.group(1)
-
-        data_match = re.search(r'var ytInitialData = ({.*?});</script>', html) or re.search(r'ytInitialData = ({.*?});', html)
-        if not data_match:
-            return False
-
         try:
-            yt_data = json.loads(data_match.group(1))
-        except Exception:
+            self.video_id = video_id
+            watch_url = f"https://www.youtube.com/watch?v={video_id}"
+            html = self.fetch_url(watch_url)
+
+            api_key_match = re.search(r'"INNERTUBE_API_KEY":"([^"]+)"', html)
+            if api_key_match:
+                self.api_key = api_key_match.group(1)
+                
+            cv_match = re.search(r'"INNERTUBE_CLIENT_VERSION":"([^"]+)"', html)
+            if cv_match:
+                self.client_version = cv_match.group(1)
+
+            data_match = re.search(r'var ytInitialData = ({.*?});</script>', html) or re.search(r'ytInitialData = ({.*?});', html)
+            if not data_match:
+                return False
+
+            try:
+                yt_data = json.loads(data_match.group(1))
+            except Exception:
+                return False
+
+            is_live_status = '"isLive":true' in html or '"isLiveNow":true' in html
+            self.is_live = is_live_status
+
+            conv_bar = yt_data.get("contents", {}).get("twoColumnWatchNextResults", {}).get("conversationBar", {})
+            live_chat_rend = conv_bar.get("liveChatRenderer")
+            
+            if not live_chat_rend:
+                return False
+
+            self.is_replay = live_chat_rend.get("isReplay", not is_live_status)
+
+            conts = live_chat_rend.get("continuations", [])
+            for c in conts:
+                for k, v in c.items():
+                    if "continuation" in v:
+                        self.continuation = v["continuation"]
+                        break
+
+            if not self.continuation:
+                sub_menu = live_chat_rend.get("header", {}).get("liveChatHeaderRenderer", {}).get("viewSelector", {}).get("sortFilterSubMenuRenderer", {})
+                items = sub_menu.get("subMenuItems", [])
+                for item in items:
+                    cont_data = item.get("continuation", {}).get("reloadContinuationData", {})
+                    if cont_data.get("continuation"):
+                        self.continuation = cont_data.get("continuation")
+                        break
+
+            return self.continuation is not None
+        except Exception as e:
+            add_log(f"⚠️ Error initializing live chat for stream {video_id}: {e}")
             return False
-
-        is_live_status = '"isLive":true' in html or '"isLiveNow":true' in html
-        self.is_live = is_live_status
-
-        conv_bar = yt_data.get("contents", {}).get("twoColumnWatchNextResults", {}).get("conversationBar", {})
-        live_chat_rend = conv_bar.get("liveChatRenderer")
-        
-        if not live_chat_rend:
-            return False
-
-        self.is_replay = live_chat_rend.get("isReplay", not is_live_status)
-
-        conts = live_chat_rend.get("continuations", [])
-        for c in conts:
-            for k, v in c.items():
-                if "continuation" in v:
-                    self.continuation = v["continuation"]
-                    break
-
-        if not self.continuation:
-            sub_menu = live_chat_rend.get("header", {}).get("liveChatHeaderRenderer", {}).get("viewSelector", {}).get("sortFilterSubMenuRenderer", {})
-            items = sub_menu.get("subMenuItems", [])
-            for item in items:
-                cont_data = item.get("continuation", {}).get("reloadContinuationData", {})
-                if cont_data.get("continuation"):
-                    self.continuation = cont_data.get("continuation")
-                    break
-
-        return self.continuation is not None
 
     def fetch_chat_batch(self):
         if not self.continuation or not self.api_key:
@@ -1002,8 +1088,11 @@ def dispatch_yt_match(rule, msg):
             )
             add_log(f"🔔 [{ch_label}] Triggered ntfy alarm for form/doc link: {form_url or message_text}")
 
-def monitor_yt_channel(rule, poll_interval=10, stop_event=None):
-    """Background worker for a single YouTube channel."""
+def monitor_yt_channel(rule, poll_interval=None, stop_event=None):
+    """Background worker for a single YouTube channel with exponential backoff on 429."""
+    if poll_interval is None:
+        poll_interval = YOUTUBE_POLL_INTERVAL
+
     ch_url = rule.get("youtube_url")
     if not ch_url:
         return
@@ -1020,9 +1109,24 @@ def monitor_yt_channel(rule, poll_interval=10, stop_event=None):
     client = YouTubeLiveChatClient(ch_url)
     add_log(f"📺 [YT Monitor Started] {ch_name} ({ch_url}) | Filter Author: {filter_author or 'Any'} | Match: '{filter_text or '*'}'")
 
+    current_backoff = 0
+
     while not (stop_event and stop_event.is_set()):
         try:
             status = client.check_channel_streams(ch_url)
+            err = status.get("error", "")
+            if err and "429" in err:
+                current_backoff = min(300, max(30, current_backoff * 2 if current_backoff else 30))
+                add_log(f"⏳ [{ch_name}] YouTube rate-limited (HTTP 429). Cooling down for {current_backoff}s to avoid IP ban...")
+                for _ in range(current_backoff):
+                    if stop_event and stop_event.is_set():
+                        break
+                    time.sleep(1)
+                continue
+
+            # Reset backoff upon successful status check
+            current_backoff = 0
+
             if status.get("is_live") and status.get("active_stream"):
                 active_stream = status["active_stream"]
                 video_id = active_stream["videoId"]
@@ -1040,8 +1144,17 @@ def monitor_yt_channel(rule, poll_interval=10, stop_event=None):
                         stream_url=stream_url
                     )
                 else:
-                    add_log(f"⚠️ [{ch_name}] Stream is live but chat is unavailable.")
+                    add_log(f"⚠️ [{ch_name}] Stream is live but chat is unavailable. Waiting 25s before re-checking.")
+                    time.sleep(25)
         except Exception as e:
+            if "429" in str(e):
+                current_backoff = min(300, max(30, current_backoff * 2 if current_backoff else 30))
+                add_log(f"⏳ [{ch_name}] YouTube rate-limited (HTTP 429). Cooling down for {current_backoff}s...")
+                for _ in range(current_backoff):
+                    if stop_event and stop_event.is_set():
+                        break
+                    time.sleep(1)
+                continue
             add_log(f"⚠️ [{ch_name}] Error polling channel: {e}")
 
         for _ in range(poll_interval):
@@ -1051,9 +1164,11 @@ def monitor_yt_channel(rule, poll_interval=10, stop_event=None):
 
 def start_youtube_monitors():
     """Launches background threads for all configured YouTube stream rules."""
+    proxy_info = f"Proxy: {YOUTUBE_PROXY}" if YOUTUBE_PROXY else "Proxy: None (direct connection)"
+    add_log(f"📺 Starting YouTube Monitors (Interval: {YOUTUBE_POLL_INTERVAL}s | {proxy_info})")
     for rule in RULES:
         if rule.get("youtube_url"):
-            th = threading.Thread(target=monitor_yt_channel, args=(rule, 10), daemon=True)
+            th = threading.Thread(target=monitor_yt_channel, args=(rule, YOUTUBE_POLL_INTERVAL), daemon=True)
             th.start()
 
 def run_syncie_process():
