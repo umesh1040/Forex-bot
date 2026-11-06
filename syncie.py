@@ -7,11 +7,7 @@ import threading
 import webbrowser
 import requests
 import discord
-import gradio as gr
-
-# ==============================================================================
-# CONFIGURATION
-# ==============================================================================
+import gradio as gr 
 USER_TOKEN = os.getenv(
     "USER_TOKEN",
     "MTU1MDM0MDUzNjQ4Mzg0ODI2Mw.G6cLNH.1zK-lr7vVbJPpAFg7S6dpv-ZQelIFEh4f6giQY"
