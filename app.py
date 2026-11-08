@@ -16,7 +16,7 @@ from datetime import datetime
 
 # ----------------- CONFIGURATION -----------------
 USER_TOKEN = os.getenv("USER_TOKEN", "MTU1MDM0MDUzNjQ4Mzg0ODI2Mw.G6cLNH.1zK-lr7vVbJPpAFg7S6dpv-ZQelIFEh4f6giQY")
-NTFY_TOPIC = os.getenv("NTFY_TOPIC", "drop_alerts_02")
+NTFY_TOPIC = os.getenv("NTFY_TOPIC", "drop_alerts_01")
 ENABLE_NTFY = os.getenv("ENABLE_NTFY", "True").lower() in ("true", "1", "yes")
 AUTO_OPEN_BROWSER = os.getenv("AUTO_OPEN_BROWSER", "True").lower() in ("true", "1", "yes")
 
