@@ -58,6 +58,11 @@ WATCHED_CHANNELS_ACCESS = {
         "guild_id": 1491002411198714008,
         "name": "Channel 1493168400837382196",
         "webhook_url": "https://discord.com/api/webhooks/1553274892760391835/-Dt6G-CGaeiTUGGyr0mCr1X1HJEcII6Qg-eQDhyTqw671p9Iq4HQpOuGCoS_aoHNhUJY",
+    },  
+    1533813510696337471: {
+        "guild_id": 1533813510205866096,
+        "name": "Channel 1533813510696337471",
+        "webhook_url": "https://discord.com/api/webhooks/1553274892760391835/-Dt6G-CGaeiTUGGyr0mCr1X1HJEcII6Qg-eQDhyTqw671p9Iq4HQpOuGCoS_aoHNhUJY",
     },
 }
 
